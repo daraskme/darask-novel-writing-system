@@ -15,7 +15,8 @@ export function createReviewHandler({ repo, indexPath = 'plot/episodes.json', fo
       async function github(path) {
         const response = await fetcher(`https://api.github.com/repos/${repo}/${path}`, {
           headers: { Authorization: `Bearer ${env.FEEDBACK_GITHUB_TOKEN.trim()}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'novel-reader' },
-          redirect: 'error', signal: AbortSignal.timeout(15000),
+          // Workers supports manual/follow only; reject 3xx below without forwarding credentials.
+          redirect: 'manual', signal: AbortSignal.timeout(15000),
         });
         if (!response.ok) fail(502, 'PRを取得できません。管理者がFEEDBACK_GITHUB_TOKENの対象作品・Contents権限・Pull requests: Read権限と有効期限を確認してください。');
         return response.json();
