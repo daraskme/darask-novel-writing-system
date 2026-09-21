@@ -2,7 +2,7 @@ name: Deploy novel review reader
 on:
   push:
     branches: [main]
-    paths: ['reader/**, functions/**, server/**, package*.json', 'main/**', 'plot/episodes.json', 'novel.toml', 'scripts/**', '.github/workflows/deploy.yml']
+    paths: ['reader/**', 'functions/**', 'server/**', 'package*.json', 'main/**', 'plot/episodes.json', 'novel.toml', 'scripts/**', '.github/workflows/deploy.yml']
   workflow_dispatch:
 permissions:
   contents: read

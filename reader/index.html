@@ -10,6 +10,11 @@
 <div id="app">
   <aside id="toc">
     <h1>話別索引</h1>
+    <label for="review-source">校閲する版</label>
+    <select id="review-source" style="width:100%;margin:8px 0;padding:8px;color:var(--fg);background:var(--bg)"><option value="">通常版</option></select>
+    <button class="btn" id="review-refresh">PR一覧を更新</button>
+    <button class="btn" id="review-export">PR下書きを保存</button>
+    <p id="source-status" role="status" style="font-size:12px;overflow-wrap:anywhere"></p>
     <div id="eplist"></div>
   </aside>
 
@@ -77,6 +82,7 @@
   <pre id="preview-text"></pre>
 </dialog>
 
+<script src="pull-requests.js" defer></script>
 <script src="app.js" defer></script>
 </body>
 </html>
