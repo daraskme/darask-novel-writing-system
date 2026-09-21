@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>darask 校閲リーダー</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <aside id="toc">
+    <h1>話別索引</h1>
+    <div id="eplist"></div>
+  </aside>
+
+  <section id="main">
+    <header>
+      <h2 id="title">校閲リーダー</h2>
+      <span class="meta" id="meta"></span>
+      <span style="margin-left:auto" class="row">
+        <button class="btn" id="fs-">A-</button>
+        <button class="btn" id="fs+">A+</button>
+        <button class="btn" id="vert">縦書き</button>
+        <button class="btn" id="theme">☾</button>
+        <button class="btn" id="cfg">⚙</button>
+      </span>
+    </header>
+    <div id="empty">左の索引から話を選んでください。<br>文章を選択すると「修正・増やす・減らす・メモ」の指示を付けられます。<br>段落左の「＋」で段落全体にも付けられます。</div>
+    <div id="text"></div>
+  </section>
+
+  <aside id="side">
+    <h3>この話への指示 <span id="anncount" style="color:var(--muted)"></span></h3>
+    <textarea id="overall" placeholder="話全体への指示（例：全体的にテンポを上げて、あと1,000字ほど増やす）"></textarea>
+    <div id="annlist"></div>
+    <div class="row">
+      <button class="btn" id="preview">Markdown を見る</button>
+      <button class="btn" id="clear">下書きを消す</button>
+    </div>
+    <button class="btn primary" id="submit">指示を保存（GitHub / ダウンロード）</button>
+    <button class="btn" id="copyprompt">執筆エージェント への依頼文をコピー</button>
+    <div id="status"></div>
+  </aside>
+</div>
+
+<div id="bar">
+  <button class="btn" id="b-toc">索引</button>
+  <button class="btn" id="b-read">本文</button>
+  <button class="btn" id="b-side">指示 <span id="anncount2"></span></button>
+</div>
+
+<div id="pop">
+  <div class="row">
+    <button data-t="fix" style="background:var(--fix)">修正</button>
+    <button data-t="expand" style="background:var(--expand)">増やす</button>
+    <button data-t="trim" style="background:var(--trim)">減らす</button>
+    <button data-t="note" style="background:var(--note)">メモ</button>
+  </div>
+  <textarea id="pop-cm" placeholder="どう直したいか（任意）"></textarea>
+  <div class="row act">
+    <button class="btn" id="pop-cancel">取消</button>
+    <button class="btn primary" id="pop-ok">追加</button>
+  </div>
+</div>
+
+<div id="settings">
+  <div class="box">
+    <h3 style="margin:0">接続設定</h3>
+    <label>読み込み元
+      <select id="s-mode">
+        <option value="github">自動 / GitHub API（公開リポジトリの閲覧はトークン不要）</option>
+        <option value="local">ローカル（作品ルートで python -m http.server を起動して reader/ を開く）</option>
+      </select>
+    </label>
+    <label>リポジトリ <input id="s-repo" placeholder="owner/name"></label>
+    <label>ブランチ <input id="s-branch" placeholder="main"></label>
+    <label>GitHub トークン
+      <input id="s-token" type="password" placeholder="github_pat_…">
+      <small>Fine-grained PAT。このリポジトリだけに Contents: Read and write を付ける。このタブのセッションにだけ保存され、GitHub API 以外へは送られない。空欄で保存すると消去。</small>
+    </label>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn" id="s-cancel">閉じる</button>
+      <button class="btn primary" id="s-save">保存して読み込む</button>
+    </div>
+  </div>
+</div>
+
+<dialog id="preview-dialog" aria-labelledby="preview-title">
+  <div class="row"><h3 id="preview-title">保存する修正指示</h3><button class="btn" id="preview-close">閉じる</button></div>
+  <pre id="preview-text"></pre>
+</dialog>
+
+<script src="app.js" defer></script>
+</body>
+</html>

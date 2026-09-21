@@ -1,0 +1,27 @@
+name: Deploy novel review reader
+on:
+  push:
+    branches: [main]
+    paths: ['reader/**', 'main/**', 'plot/episodes.json', 'novel.toml', 'scripts/**', '.github/workflows/deploy.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: cloudflare-pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    if: vars.CLOUDFLARE_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: python scripts/novel.py check
+      - run: python scripts/build_site.py
+      - uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy _site --project-name ${{ vars.CLOUDFLARE_PAGES_PROJECT }} --branch main
