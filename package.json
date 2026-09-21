@@ -1,0 +1,15 @@
+{
+  "name": "darask-novel-writing-system",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "build:reader": "wrangler pages functions build --outdir .wrangler/reader-build"
+  },
+  "dependencies": {
+    "jose": "^6.1.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

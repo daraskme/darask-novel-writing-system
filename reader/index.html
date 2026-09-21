@@ -22,7 +22,7 @@
         <button class="btn" id="fs+">A+</button>
         <button class="btn" id="vert">縦書き</button>
         <button class="btn" id="theme">☾</button>
-        <button class="btn" id="cfg">⚙</button>
+        <button class="btn" id="cfg">接続状況</button>
       </span>
     </header>
     <div id="empty">左の索引から話を選んでください。<br>文章を選択すると「修正・増やす・減らす・メモ」の指示を付けられます。<br>段落左の「＋」で段落全体にも付けられます。</div>
@@ -37,7 +37,7 @@
       <button class="btn" id="preview">Markdown を見る</button>
       <button class="btn" id="clear">下書きを消す</button>
     </div>
-    <button class="btn primary" id="submit">指示を保存（GitHub / ダウンロード）</button>
+    <button class="btn primary" id="submit">指示を送信（GitHub）</button>
     <button class="btn" id="copyprompt">執筆エージェント への依頼文をコピー</button>
     <div id="status"></div>
   </aside>
@@ -65,23 +65,10 @@
 
 <div id="settings">
   <div class="box">
-    <h3 style="margin:0">接続設定</h3>
-    <label>読み込み元
-      <select id="s-mode">
-        <option value="github">自動 / GitHub API（公開リポジトリの閲覧はトークン不要）</option>
-        <option value="local">ローカル（作品ルートで python -m http.server を起動して reader/ を開く）</option>
-      </select>
-    </label>
-    <label>リポジトリ <input id="s-repo" placeholder="owner/name"></label>
-    <label>ブランチ <input id="s-branch" placeholder="main"></label>
-    <label>GitHub トークン
-      <input id="s-token" type="password" placeholder="github_pat_…">
-      <small>Fine-grained PAT。このリポジトリだけに Contents: Read and write を付ける。このタブのセッションにだけ保存され、GitHub API 以外へは送られない。空欄で保存すると消去。</small>
-    </label>
-    <div class="row" style="justify-content:flex-end">
-      <button class="btn" id="s-cancel">閉じる</button>
-      <button class="btn primary" id="s-save">保存して読み込む</button>
-    </div>
+    <h3>接続状況</h3>
+    <p>ログインしたアカウントで修正指示を送ります。キーの入力は不要です。</p>
+    <p id="connection-status" role="status"></p>
+    <button class="btn" id="s-cancel">閉じる</button>
   </div>
 </div>
 

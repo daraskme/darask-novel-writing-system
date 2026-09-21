@@ -17,6 +17,13 @@ def create(destination, title, repo, minimum=0):
         raise ValueError(f'既存フォルダは上書きしません: {destination}')
     shutil.copytree(SYSTEM / 'template', destination)
     shutil.copytree(SYSTEM / 'reader', destination / 'reader')
+    for folder in ('server', 'functions'):
+        shutil.copytree(SYSTEM / folder, destination / folder)
+    for name in ('package.json', 'package-lock.json'):
+        shutil.copy2(SYSTEM / name, destination / name)
+    (destination / 'tests').mkdir(exist_ok=True)
+    for test in (SYSTEM / 'tests').glob('*.test.mjs'):
+        shutil.copy2(test, destination / 'tests' / test.name)
     for name in ('project.py', 'novel.py', 'build_site.py'):
         shutil.copy2(SYSTEM / 'scripts' / name, destination / 'scripts' / name)
     q = lambda value: json.dumps(value, ensure_ascii=False)

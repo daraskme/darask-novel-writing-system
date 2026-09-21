@@ -2,7 +2,7 @@
 
 **GitHubに原稿を置き、執筆スキルで書き、Cloudflareの校閲画面から作者の修正指示を返す、日本語小説の制作環境。**
 
-『Remission Online』で使っている `main / plot / wiki / feedback` の運用を、ほかの作品でも始められるようにまとめました。作品リポジトリを作るPythonコマンド、4つの執筆スキル、スマホでも使える校閲リーダー、Cloudflare Pages向けのビルドとGitHub Actionsを含みます。
+『Remission Online』で使っている `main / plot / wiki / feedback` の運用を、ほかの作品でも始められるようにまとめました。作品リポジトリを作るPythonコマンド、4つの執筆スキル、スマホでも使える校閲リーダー、Cloudflare Pages Functionsの送信API、ビルドとGitHub Actionsを含みます。
 
 ```mermaid
 flowchart LR
@@ -98,7 +98,7 @@ python scripts/build_site.py
 python -m http.server 8000 --directory _site
 ```
 
-`http://localhost:8000/reader/` を開きます。本文を選択するか、段落の「＋」から指示を追加できます。トークンなしならMarkdownをダウンロード、トークンを設定すれば作品リポジトリの `feedback/` にコミットします。指示には閲覧した版のコミットと、静的配信時の本文ハッシュを添えます。
+`http://localhost:8000/reader/` を開きます。本文を選択するか、段落の「＋」から指示を追加できます。ローカルではMarkdownを保存。CloudflareではGoogleログイン後に作品リポジトリの `feedback/` へ送信します。送信用のGitHubトークンは管理者がCloudflare Secretsへ登録し、読み手の画面には入力しません。指示には閲覧した版のコミットと本文ハッシュを添えます。
 
 Cloudflare Pagesの作成、GitHub Secrets、Cloudflare Accessの設定は **[Cloudflare導入手順](docs/cloudflare.md)**。既存作品への移行は **[移行ガイド](docs/migration.md)**。日々の回し方は **[制作と校閲の手順](docs/workflow.md)** を参照してください。
 

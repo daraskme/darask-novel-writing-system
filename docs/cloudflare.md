@@ -43,7 +43,19 @@ Cloudflareのトークンを原稿リポジトリやブラウザへ書かない�
 
 ## 4. 指示をGitHubへ送る
 
-リーダーの⚙でFine-grained PATを設定します。対象は作品リポジトリ1つ、Contents: Read and write。トークンはそのタブのsessionStorageに保存し、GitHub APIへの通信にだけ使います。空欄で保存すると削除します。トークンがなければ指示をMarkdownでダウンロードできます。
+読み手はGoogleログイン後、そのまま指示を送ります。GitHubトークンをブラウザへ入力・保存する必要はありません。管理者がPagesプロジェクトのProductionのVariables and Secretsへ次を登録し、再デプロイします。
+
+| 種類 | 名前 | 値 |
+|---|---|---|
+| Secret | `FEEDBACK_GITHUB_TOKEN` | 対象作品1つ、Contents: Read and write権限のFine-grained PAT |
+| Text | `FEEDBACK_REPOSITORY` | `novel.toml`と同じ`owner/name` |
+| Text | `FEEDBACK_BRANCH` | `novel.toml`と同じブランチ。省略時`main` |
+| Text | `ACCESS_TEAM_DOMAIN` | `your-team.cloudflareaccess.com` |
+| Text | `ACCESS_AUD` | このサイトを保護するAccess ApplicationのAudience Tag |
+
+初回は作品ルートで`npm ci`を実行します。Node.js 22以上が必要です。ルートの`functions/`をWranglerが検出し、`server/feedback.js`を含めてFunctionsへバンドルします。サーバーのソース・トークンは静的配信へコピーしません。FunctionsがAccess JWTの署名・発行者・AUD・期限と同一オリジンを確認し、サーバー設定の作品の`feedback/`以下にだけ新規ファイルを作ります。
+
+「接続状況」でログインと送信先設定の一致を確認できます。トークンの期限・権限は実際の保存時にGitHubが確認します。失効や誤登録時はCloudflareの同じSecretを更新して再デプロイします。ブラウザの下書きを消す必要はありません。ローカルでは送信APIを呼ばずMarkdownをダウンロードします。
 
 本文閲覧と指示の保存先は、`novel.toml` の `[github]` で指定したリポジトリです。非公開リポジトリの本文も、Accessで保護した静的配信から読めます。
 

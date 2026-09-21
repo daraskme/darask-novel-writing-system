@@ -3,6 +3,15 @@ from pathlib import Path, PurePosixPath
 import json
 import re
 import tomllib
+import os
+import sys
+
+# Japanese CLI output must work in English Windows terminals and subprocesses.
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, 'reconfigure'):
+        stream.reconfigure(encoding='utf-8')
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+
 
 
 def inside(root, relative):

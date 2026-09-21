@@ -7,62 +7,50 @@ const LS = {
   del: (k) => localStorage.removeItem(k),
 };
 const params = new URLSearchParams(location.search);
-const savedCfg = LS.get('darask:cfg', {});
-const cfg = { repo: savedCfg.repo || '', branch: savedCfg.branch || 'main', mode: savedCfg.mode || 'github', token: '' };
+const cfg = { repo: '', branch: 'main' };
 let site = null;
-const validRepo = (r) => /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(r);
-const readToken = () => { try { return sessionStorage.getItem('darask:token:' + cfg.repo) || ''; } catch { return ''; } };
-const storeToken = () => { try { const k = 'darask:token:' + cfg.repo; if (cfg.token) sessionStorage.setItem(k, cfg.token); else sessionStorage.removeItem(k); } catch {} };
-if (params.get('repo')) cfg.repo = params.get('repo');
-if (params.get('branch')) cfg.branch = params.get('branch');
-if (params.has('local')) cfg.mode = 'local';
+const isLocal = () => location.protocol === 'file:' || ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname) || params.has('local');
+// Only remove credentials from prior reader versions; preserve all drafts.
+try {
+  LS.del('darask:cfg'); LS.del('cfg');
+  for (let i = sessionStorage.length - 1; i >= 0; i--) {
+    const key = sessionStorage.key(i);
+    if (key.startsWith('darask:token:')) sessionStorage.removeItem(key);
+  }
+} catch {}
 
 let episodes = [];
 let cur = null;           // { n, title, kind, path, paras: string[], sha, commit }
 let draft = null;         // { overall: string, anns: Ann[] }  Ann = { id, type, pStart, pEnd, quote, comment, ts }
 let pending = null;       // selection captured when popup opened
 
-// ---------- GitHub API ----------
-async function gh(path, opt = {}) {
-  const headers = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', ...(opt.headers || {}) };
-  if (cfg.token) headers.Authorization = `Bearer ${cfg.token}`;
-  const res = await fetch(`https://api.github.com${path}`, { ...opt, headers });
-  if (!res.ok) {
-    let msg = `${res.status} ${res.statusText}`;
-    try { msg += `: ${(await res.json()).message}`; } catch {}
-    throw new Error(msg);
-  }
-  return res.json();
-}
-const b64decode = (s) => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\n/g, '')), (c) => c.charCodeAt(0)));
-const b64encode = (s) => {
-  const bytes = new TextEncoder().encode(s); let binary = '';
-  for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
-  return btoa(binary);
-};
-const isLocal = () => cfg.mode === 'local';
-let hasStatic = false;   // 作品ルートごと配信されている（ローカル http.server / GitHub Pages）なら本文は同じ場所から読む
-async function fetchStatic(path) {
+// ---------- Static manuscript / same-origin feedback API ----------
+async function getFile(path) {
   const res = await fetch(`../${path}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`${res.status} ${path}`);
   return { text: await res.text(), sha: '' };
 }
-async function getFile(path, ref = cfg.branch) {
-  if (isLocal() || hasStatic) return fetchStatic(path);
-  const j = await gh(`/repos/${cfg.repo}/contents/${encodeURI(path)}?ref=${encodeURIComponent(ref)}`);
-  return { text: b64decode(j.content), sha: j.sha };
+async function headCommit() { return site?.commit || ''; }
+async function siteApi(options = {}) {
+  let res;
+  try {
+    res = await fetch('../api/feedback', { credentials: 'same-origin', cache: 'no-store', redirect: 'error', ...options });
+  } catch {
+    throw new Error('通信できませんでした。ページを読み直してログインを確認してください。下書きは残っています。');
+  }
+  if (!res.headers.get('Content-Type')?.includes('application/json')) {
+    throw new Error('送信サービスを確認できません。再ログインしても直らない場合は管理者に連絡してください。');
+  }
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || '送信サービスでエラーが発生しました。');
+  return data;
 }
-async function headCommit() {
-  if (hasStatic || isLocal()) return site?.commit || '';
-  if (!validRepo(cfg.repo)) throw new Error('接続設定に owner/name を入力してください');
-  const j = await gh(`/repos/${cfg.repo}/commits/${encodeURIComponent(cfg.branch)}`);
-  return j.sha;
-}
-async function putFile(path, content, message) {
-  return gh(`/repos/${cfg.repo}/contents/${encodeURI(path)}`, {
-    method: 'PUT',
-    body: JSON.stringify({ message, content: b64encode(content), branch: cfg.branch }),
-  });
+async function checkConnection() {
+  const data = await siteApi();
+  if (data.configured !== true || data.repo !== cfg.repo || data.branch !== cfg.branch) {
+    throw new Error('配信元と送信先の作品・ブランチが一致しません。管理者がnovel.tomlとCloudflareの設定を確認してください。');
+  }
+  return data;
 }
 
 // ---------- load ----------
@@ -75,19 +63,13 @@ async function loadIndex() {
     cur = null; draft = null;
     $('text').innerHTML = ''; $('annlist').innerHTML = ''; $('overall').value = '';
     $('submit').disabled = true;
-    if (isLocal() && site && (cfg.repo !== site.repo || cfg.branch !== site.branch)) {
-      throw new Error('ローカル配信の作品と接続先が異なります。接続先を配信元に戻すか、GitHub読込へ切り替えてください');
-    }
-    hasStatic = !!site && cfg.repo === site.repo && cfg.branch === site.branch;
-    if (!hasStatic && !isLocal() && !validRepo(cfg.repo)) { openSettings(); return; }
     const { text } = await getFile('plot/episodes.json');
     episodes = JSON.parse(text);
     renderToc();
     const h = location.hash.match(/^#(\d+)$/);
-    if (h) openEpisode(+h[1]);
+    if (h) await openEpisode(+h[1]);
   } catch (e) {
-    status(`索引の読み込みに失敗: ${e.message}\n⚙ から読み込み元・トークン・リポジトリを確認してください。`, true);
-    if (!cfg.token && !isLocal()) openSettings();
+    status(`索引の読み込みに失敗: ${e.message}\nページを読み直してください。ローカルではHTTPサーバーから開いてください。`, true);
   }
 }
 
@@ -112,7 +94,7 @@ async function openEpisode(n) {
     const commit = await headCommit();
     const { text, sha } = await getFile(e.manuscript, commit || cfg.branch);
     if (serial !== openSerial || cfg.repo !== sourceRepo || cfg.branch !== sourceBranch) return;
-    const hash = (hasStatic || isLocal()) ? site?.hashes?.[e.manuscript] || '' : '';
+    const hash = site?.hashes?.[e.manuscript] || '';
     const paras = text.replace(/\r\n/g, '\n').split(/\n\n+/).map((p) => p.replace(/^\n+|\n+$/g, ''));
     cur = { n, title: e.title, kind: e.kind, path: e.manuscript, paras, sha, commit, hash, sourceRepo, sourceBranch };
     draft = LS.get(draftKey(n), { overall: '', anns: [] });
@@ -266,7 +248,7 @@ function renderSide(list = true) {
   const c = draft.anns.length + (draft.overall.trim() ? 1 : 0);
   $('anncount').textContent = c ? `${c}件` : '';
   $('anncount2').textContent = c ? `(${c})` : '';
-  $('submit').disabled = !c;
+  $('submit').disabled = submitting || !c;
   if (!list) return;
   $('annlist').innerHTML = draft.anns.map((a, i) => `
     <div class="card c-${a.type}" data-i="${i}">
@@ -332,34 +314,36 @@ function download(name, text) {
   a.href = URL.createObjectURL(new Blob([text], { type: 'text/markdown' }));
   a.download = name; a.click(); URL.revokeObjectURL(a.href);
 }
+let submitting = false;
 $('submit').addEventListener('click', async () => {
-  if (!cur) return;
-  const path = feedbackPath();
-  if (!cfg.token) {
-    download(path.slice('feedback/'.length), toMarkdown());
-    statusHTML(`ダウンロードしました。<code>${esc(path)}</code> として保存してコミットしてください。<br>執筆エージェント への依頼文: <code>${esc(agentPrompt(path))}</code>`);
+  if (!cur || submitting || (!draft.anns.length && !draft.overall.trim())) return;
+  const sendingCur = cur, sendingDraft = draft, sentText = toMarkdown();
+  const snapshot = JSON.stringify(draft), key = draftKey(cur.n);
+  const episode = String(cur.n), path = feedbackPath();
+  if (isLocal()) {
+    download(path.slice('feedback/'.length), sentText);
+    statusHTML(`ダウンロードしました。<code>${esc(path)}</code> として保存してコミットしてください。`);
     LS.set(`sent:${cfg.repo}:${cur.n}`, path);
     return;
   }
-  if (!validRepo(cfg.repo) || cfg.repo !== cur.sourceRepo || cfg.branch !== cur.sourceBranch) {
-    status('送信先が閲覧元と一致しません。接続設定と本文を読み直してください。', true); return;
-  }
-  const sendingCur = cur; const sendingDraft = draft; const sentText = toMarkdown();
-  $('submit').disabled = true; status('コミット中…');
+  submitting = true; $('submit').disabled = true; status('コミット中…');
   try {
-    const j = await putFile(path, sentText, `feedback: 第${cur.n}話への修正指示 ${draft.anns.length}件`);
+    await checkConnection();
+    const result = await siteApi({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ episode, markdown: sentText }) });
+    if (!/^feedback\/[0-9.]+-[0-9-]+-[a-f0-9-]+\.md$/.test(result.path || '')) throw new Error('保存結果を確認できません。下書きは残しています。');
+    LS.set(`sent:${cfg.repo}:${episode}`, result.path);
     if (cur !== sendingCur || draft !== sendingDraft) return;
-    const url = j.content?.html_url || '';
-    statusHTML(`送信しました: <a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(path)}</a><br>執筆エージェント への依頼文: <code>${esc(agentPrompt(path))}</code> <button class="btn" id="cp2">コピー</button>`);
-    $('cp2').onclick = () => navigator.clipboard.writeText(agentPrompt(path));
-    LS.set(`sent:${cfg.repo}:${cur.n}`, path);
-    if (toMarkdown() === sentText) {
-      draft = { overall: '', anns: [] }; $('overall').value = '';
-      LS.del(draftKey(cur.n));
+    const url = `https://github.com/${cfg.repo}/blob/${encodeURIComponent(cfg.branch)}/${result.path}`;
+    statusHTML(`送信しました: <a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(result.path)}</a>`);
+    if (JSON.stringify(draft) === snapshot) {
+      draft = { overall: '', anns: [] }; $('overall').value = ''; LS.del(key);
     }
     renderText(); renderSide(); renderToc();
   } catch (e) {
-    status(`送信に失敗: ${e.message}`, true); $('submit').disabled = false;
+    status(`送信に失敗: ${e.message}`, true);
+  } finally {
+    submitting = false;
+    if (cur && draft) renderSide();
   }
 });
 $('copyprompt').addEventListener('click', () => {
@@ -370,18 +354,18 @@ $('copyprompt').addEventListener('click', () => {
 });
 
 // ---------- settings / view ----------
-function openSettings() { $('s-mode').value = cfg.mode; $('s-repo').value = cfg.repo; $('s-branch').value = cfg.branch; $('s-token').value = cfg.token; $('settings').style.display = 'flex'; }
+async function openSettings() {
+  $('settings').style.display = 'flex';
+  $('connection-status').textContent = isLocal() ? 'ローカルではMarkdownを保存します。' : '接続を確認中…';
+  if (isLocal()) return;
+  try {
+    await checkConnection();
+    $('connection-status').textContent = 'ログインと送信先の設定を確認しました。';
+  } catch (e) { $('connection-status').textContent = e.message; }
+}
 $('cfg').addEventListener('click', openSettings);
-$('s-repo').addEventListener('input', () => { if ($('s-repo').value.trim() !== cfg.repo) $('s-token').value = ''; });
 $('s-cancel').addEventListener('click', () => $('settings').style.display = 'none');
-$('s-save').addEventListener('click', () => {
-  const repo = $('s-repo').value.trim();
-  if (repo && !validRepo(repo)) { status('リポジトリは owner/name の形式です。', true); return; }
-  cfg.mode = $('s-mode').value; cfg.repo = repo; cfg.branch = $('s-branch').value.trim() || 'main';
-  cfg.token = $('s-token').value.trim();
-  storeToken();
-  LS.set('darask:cfg', { mode: cfg.mode, repo: cfg.repo, branch: cfg.branch }); $('settings').style.display = 'none'; status(''); loadIndex();
-});
+if (isLocal()) $('submit').textContent = '修正指示を保存（Markdown）';
 
 let fs = LS.get('fs', 17);
 function applyFs() { document.documentElement.style.setProperty('--fs', fs + 'px'); LS.set('fs', fs); }
@@ -410,11 +394,10 @@ async function bootstrap() {
     } catch {}
   }
   if (site) {
-    cfg.repo = params.get('repo') || site.repo;
-    cfg.branch = params.get('branch') || site.branch;
+    cfg.repo = site.repo;
+    cfg.branch = site.branch;
     document.title = site.title + ' — 校閲リーダー';
   }
-  cfg.token = readToken();
   await loadIndex();
 }
-bootstrap();
+const startup = bootstrap();
