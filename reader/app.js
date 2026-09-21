@@ -26,6 +26,7 @@ let pending = null;       // selection captured when popup opened
 
 // ---------- Static manuscript / same-origin feedback API ----------
 async function getFile(path) {
+  if (review.pull && path.startsWith('main/')) return reviewApi({ pr: String(review.pull.number), commit: review.pull.commit, path });
   const res = await fetch(`../${path}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`${res.status} ${path}`);
   return { text: await res.text(), sha: '' };
@@ -58,19 +59,10 @@ function status(msg, isErr = false) { $('status').textContent = msg; $('status')
 function statusHTML(html) { $('status').innerHTML = html; $('status').style.color = 'var(--muted)'; }
 
 async function loadIndex() {
-  try {
-    ++openSerial;
-    cur = null; draft = null;
-    $('text').innerHTML = ''; $('annlist').innerHTML = ''; $('overall').value = '';
-    $('submit').disabled = true;
+  await loadReviewIndex(async () => {
     const { text } = await getFile('plot/episodes.json');
-    episodes = JSON.parse(text);
-    renderToc();
-    const h = location.hash.match(/^#(\d+)$/);
-    if (h) await openEpisode(+h[1]);
-  } catch (e) {
-    status(`索引の読み込みに失敗: ${e.message}\nページを読み直してください。ローカルではHTTPサーバーから開いてください。`, true);
-  }
+    return JSON.parse(text);
+  });
 }
 
 function renderToc() {
@@ -78,29 +70,30 @@ function renderToc() {
     const d = LS.get(draftKey(e.number), null);
     const has = d && (d.anns.length || d.overall.trim());
     return `<a class="ep${cur && cur.n === e.number ? ' active' : ''}${has ? ' has-draft' : ''}" href="#${e.number}" data-n="${e.number}">
-      <span class="n">${String(e.number).padStart(3, '0')}</span><span>${esc(e.title)}</span><span class="k">${esc(e.kind)}</span></a>`;
+      <span class="n">${String(e.number).padStart(3, '0')}</span><span>${esc(e.title)}</span><span class="k">${esc(e.kind || '')}${e.changed ? '・変更あり' : ''}</span></a>`;
   }).join('');
 }
 
-const draftKey = (n) => `draft:${cfg.repo}:${cfg.branch}:${n}`;
+const draftKey = (n) => reviewKey(`draft:${cfg.repo}:${cfg.branch}:${n}`);
 let openSerial = 0;
 
 async function openEpisode(n) {
-  const e = episodes.find((x) => x.number === n);
+  const e = episodes.find((x) => String(x.number) === String(n));
   if (!e) return;
   status('読み込み中…');
   const serial = ++openSerial; const sourceRepo = cfg.repo; const sourceBranch = cfg.branch;
   try {
-    const commit = await headCommit();
-    const { text, sha } = await getFile(e.manuscript, commit || cfg.branch);
+    const commit = review.pull?.commit || await headCommit();
+    const { text, sha, hash: prHash } = await getFile(e.manuscript);
     if (serial !== openSerial || cfg.repo !== sourceRepo || cfg.branch !== sourceBranch) return;
-    const hash = site?.hashes?.[e.manuscript] || '';
+    const hash = prHash || site?.hashes?.[e.manuscript] || '';
     const paras = text.replace(/\r\n/g, '\n').split(/\n\n+/).map((p) => p.replace(/^\n+|\n+$/g, ''));
-    cur = { n, title: e.title, kind: e.kind, path: e.manuscript, paras, sha, commit, hash, sourceRepo, sourceBranch };
+    cur = { n, title: e.title, kind: e.kind, path: e.manuscript, paras, sha, commit, hash, sourceRepo, sourceBranch, ...reviewSource() };
     draft = LS.get(draftKey(n), { overall: '', anns: [] });
+    $('overall').disabled = false;
     $('overall').value = draft.overall;
     $('title').textContent = `第${n}話「${e.title}」`;
-    $('meta').textContent = `${e.kind}・${bodyChars(text).toLocaleString()}字・${e.manuscript}${commit ? ' @ ' + commit.slice(0, 7) : ''}`;
+    $('meta').textContent = (cur.pr ? `PR #${cur.pr}・` : '') + `${e.kind}・${bodyChars(text).toLocaleString()}字・${e.manuscript}${commit ? ' @ ' + commit.slice(0, 7) : ''}`;
     $('empty').style.display = 'none';
     location.hash = `#${n}`;
     renderText();
@@ -110,6 +103,7 @@ async function openEpisode(n) {
     $('main').scrollTop = 0;
     closePanels();
   } catch (err) {
+    if (serial !== openSerial) return;
     status(`本文の読み込みに失敗: ${err.message}`, true);
   }
 }
@@ -237,7 +231,7 @@ document.addEventListener('mousedown', (e) => { if (!pop.contains(e.target) && !
 // ---------- side panel ----------
 function saveDraft() {
   if (!cur) return;
-  if (!draft.source) draft.source = { commit: cur.commit, hash: cur.hash };
+  if (!draft.source) draft.source = { commit: cur.commit, hash: cur.hash, path: cur.path, number: cur.n, title: cur.title, ...reviewSource() };
   draft.overall = $('overall').value;
   if (draft.anns.length || draft.overall.trim()) LS.set(draftKey(cur.n), draft); else LS.del(draftKey(cur.n));
   renderToc();
@@ -285,6 +279,7 @@ function toMarkdown() {
   const source = draft.source || cur;
   const lines = [`# 第${cur.n}話「${cur.title}」への修正指示`, '', `- 作成: ${stamp().human}`, `- 対象: ${cur.path}${source.commit ? ` @ ${source.commit}` : '（作業コピー・コミット未記録）'}`, `- 件数: ${draft.anns.length}${draft.overall.trim() ? '（＋話全体）' : ''}`, ''];
   if (source.hash) lines.push(`- 本文SHA-256: ${source.hash}`, '');
+  lines.push(...reviewLines(source));
   if (draft.overall.trim()) lines.push('## 話全体', '', draft.overall.trim(), '');
   draft.anns.forEach((a, i) => {
     const where = `段落${a.pStart + 1}${a.pEnd !== a.pStart ? `〜${a.pEnd + 1}` : ''}`;
@@ -295,7 +290,7 @@ function toMarkdown() {
   return lines.join('\n');
 }
 function agentPrompt(path) {
-  return `ja-novel-revise を使い、${path} の指示を第${cur.n}話（${cur.path}）に反映して。手順は feedback/README.md のとおり。`;
+  return `ja-novel-revise を使い、${path} の指示を第${cur.n}話（${cur.path}）に反映して。手順は feedback/README.md のとおり。` + reviewPrompt();
 }
 
 $('preview').addEventListener('click', () => {
@@ -318,12 +313,12 @@ let submitting = false;
 $('submit').addEventListener('click', async () => {
   if (!cur || submitting || (!draft.anns.length && !draft.overall.trim())) return;
   const sendingCur = cur, sendingDraft = draft, sentText = toMarkdown();
-  const snapshot = JSON.stringify(draft), key = draftKey(cur.n);
+  const snapshot = JSON.stringify(draft), key = draftKey(cur.n), sentKey = reviewKey(`sent:${cfg.repo}:${cur.n}`);
   const episode = String(cur.n), path = feedbackPath();
   if (isLocal()) {
     download(path.slice('feedback/'.length), sentText);
     statusHTML(`ダウンロードしました。<code>${esc(path)}</code> として保存してコミットしてください。`);
-    LS.set(`sent:${cfg.repo}:${cur.n}`, path);
+    LS.set(reviewKey(`sent:${cfg.repo}:${cur.n}`), path);
     return;
   }
   submitting = true; $('submit').disabled = true; status('コミット中…');
@@ -331,7 +326,7 @@ $('submit').addEventListener('click', async () => {
     await checkConnection();
     const result = await siteApi({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ episode, markdown: sentText }) });
     if (!/^feedback\/[0-9.]+-[0-9-]+-[a-f0-9-]+\.md$/.test(result.path || '')) throw new Error('保存結果を確認できません。下書きは残しています。');
-    LS.set(`sent:${cfg.repo}:${episode}`, result.path);
+    LS.set(sentKey, result.path);
     if (cur !== sendingCur || draft !== sendingDraft) return;
     const url = `https://github.com/${cfg.repo}/blob/${encodeURIComponent(cfg.branch)}/${result.path}`;
     statusHTML(`送信しました: <a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(result.path)}</a>`);
@@ -348,7 +343,7 @@ $('submit').addEventListener('click', async () => {
 });
 $('copyprompt').addEventListener('click', () => {
   if (!cur) return;
-  const sent = LS.get(`sent:${cfg.repo}:${cur.n}`, null);
+  const sent = LS.get(reviewKey(`sent:${cfg.repo}:${cur.n}`), null);
   navigator.clipboard.writeText(agentPrompt(sent || `feedback/${pad3(cur.n)}-＜送信後のファイル名＞.md`));
   status(sent ? `コピーしました（${sent}）` : 'コピーしました（ファイル名は送信後に確定します）');
 });
@@ -398,6 +393,6 @@ async function bootstrap() {
     cfg.branch = site.branch;
     document.title = site.title + ' — 校閲リーダー';
   }
-  await loadIndex();
+  await initializeReview();
 }
 const startup = bootstrap();

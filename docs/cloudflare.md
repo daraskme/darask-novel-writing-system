@@ -47,7 +47,7 @@ Cloudflareのトークンを原稿リポジトリやブラウザへ書かない�
 
 | 種類 | 名前 | 値 |
 |---|---|---|
-| Secret | `FEEDBACK_GITHUB_TOKEN` | 対象作品1つ、Contents: Read and write権限のFine-grained PAT |
+| Secret | `FEEDBACK_GITHUB_TOKEN` | 対象作品1つ、Contents: Read and write・Pull requests: Read権限のFine-grained PAT |
 | Text | `FEEDBACK_REPOSITORY` | `novel.toml`と同じ`owner/name` |
 | Text | `FEEDBACK_BRANCH` | `novel.toml`と同じブランチ。省略時`main` |
 | Text | `ACCESS_TEAM_DOMAIN` | `your-team.cloudflareaccess.com` |
@@ -60,3 +60,15 @@ Cloudflareのトークンを原稿リポジトリやブラウザへ書かない�
 本文閲覧と指示の保存先は、`novel.toml` の `[github]` で指定したリポジトリです。非公開リポジトリの本文も、Accessで保護した静的配信から読めます。
 
 初回確認では、未ログインのブラウザから `/reader/`、`/main/001.txt`、`/plot/episodes.json` にアクセスし、すべてがログインを要求することを確かめます。正しいアカウントで本文を読み、テスト用の指示を1件保存して経路を確認します。
+
+## 5. マージ前のPR本文を校閲する
+
+同じCloudflareの校閲URLで、索引の「校閲する版」からPRを選びます。「変更あり」が付いた話がPRで追加・変更された本文です。前後の話も同じPRの版で読めます。`/reader/?pr=7#1` のようにPR番号と話番号を指定して直接開くこともできます。
+
+PRを更新したら「PR一覧を更新」で最新の版を開きます。下書きは通常版・PR番号・コミット・話ごとに分かれます。更新前や終了したPRの下書きは「PR下書きを保存」からMarkdownに取り出せます。
+
+修正指示は従来と同じ送信先ブランチの `feedback/` に保存し、対象PRのURL・修正先ブランチ・閲覧コミット・本文SHA-256を記録します。執筆エージェントへの依頼文は、対象PRのブランチへ修正するよう案内します。本文の取り込みや投稿は別の操作です。
+
+既存のPATに **Pull requests: Read** がなければ追加してください。トークンを交換した場合はCloudflareの `FEEDBACK_GITHUB_TOKEN` を更新して再デプロイします。[GitHub公式のPR API権限](https://docs.github.com/en/rest/pulls/pulls#fine-grained-access-tokens-for-list-pull-requests)を参照してください。
+
+`GET /api/review` は送信APIと同じAccess JWTを検証し、サーバーで固定した作品のGitHub APIだけを読みます。対象は同じリポジトリの未完了PR（Draftを含む）です。ForkのPRは対象外です。PRのコードは実行せず、PRの索引にある `main/` 配下の通常ファイル（`.txt` / `.md`、各1MB以下）だけを返します。PRごとのCloudflareデプロイやプレビュー用の認証設定は不要です。

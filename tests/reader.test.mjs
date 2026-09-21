@@ -27,11 +27,13 @@ function page({ api = async (_url, options) => Response.json(options.method === 
     URLSearchParams, URL, Blob, console, crypto, addEventListener() {},
     fetch: async (url, options = {}) => {
       requests.push({ url, options });
+      if (url === '../api/review') return Response.json({ repo, pulls: [] });
       if (url === '../api/feedback') return api(url, options);
       if (url === 'project.json') return Response.json({ title: '作品', repo, branch, commit: 'abc', hashes: {} });
       return Response.json([]);
     },
   });
+  vm.runInContext(readFileSync(new URL('../reader/pull-requests.js', import.meta.url), 'utf8'), context);
   vm.runInContext(script, context);
   async function prepare() {
     await vm.runInContext('startup', context);
