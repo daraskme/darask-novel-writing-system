@@ -10,6 +10,7 @@
     "jose": "^6.1.0"
   },
   "devDependencies": {
-    "wrangler": "^4.0.0"
+    "wrangler": "^4.0.0",
+    "miniflare": "5.20260918.0-alpha"
   }
 }

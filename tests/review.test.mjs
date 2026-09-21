@@ -25,7 +25,7 @@ function setup({ pr = pull, index = rows, format = 'standard', indexPath = 'plot
     const p = url.replace(`https://api.github.com/repos/${repo}/`, '');
     assert.notEqual(p, url, 'all reads must stay in the configured repository');
     assert.equal(options.headers.Authorization, 'Bearer server-token');
-    assert.equal(options.redirect, 'error');
+    assert.equal(options.redirect, 'manual');
     calls.push(p);
     const custom = override(p, calls);
     if (custom !== undefined) return custom;
