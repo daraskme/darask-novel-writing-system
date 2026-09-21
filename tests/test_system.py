@@ -63,6 +63,7 @@ class SystemTest(unittest.TestCase):
         write(self.root / 'main/999.txt', '索引にない原稿')
         output = build(self.root)
         self.assertTrue((output / 'reader/pull-requests.js').is_file())
+        self.assertTrue((output / 'reader/review-diff.css').is_file())
         self.assertTrue((self.root / 'functions/api/review.js').is_file())
         self.assertFalse((output / 'server').exists())
         self.assertFalse((output / 'functions').exists())

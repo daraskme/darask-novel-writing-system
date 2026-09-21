@@ -31,7 +31,7 @@ def build(root):
                 raise ValueError(f'空の採用原稿: {p}')
             published.append({k: row[k] for k in ('number', 'title', 'manuscript')} | {'kind': row.get('kind', '本編')})
             data[row['manuscript']] = blob
-    reader = {p.name: p.read_bytes() for p in source.iterdir() if p.name in ('index.html', 'app.js', 'style.css', 'pull-requests.js') and inside(root, 'reader/' + p.name).is_file()}
+    reader = {p.name: p.read_bytes() for p in source.iterdir() if p.name in ('index.html', 'app.js', 'style.css', 'pull-requests.js', 'review-diff.css') and inside(root, 'reader/' + p.name).is_file()}
     commit = ''
     try:
         commit = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True, stderr=subprocess.DEVNULL).strip()
