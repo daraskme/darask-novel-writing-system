@@ -14,7 +14,7 @@ const pull = { number: 7, title: '改稿 <img onerror="alert(1)">', branch: 'nov
 const row = { number: n, title: '検証用', kind: '', manuscript: 'main/001.txt', changed: true };
 const key = `draft:${repo}:${modern ? 'main:' : ''}${n}`;
 const savedPath = 'feedback/001-20260921-010101-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.md';
-function page({ search = '?pr=7', override = async () => undefined } = {}) {
+function page({ search = '?pr=7', hash = '', override = async () => undefined } = {}) {
   const nodes = new Map(), store = new Map(), requests = [];
   const node = id => {
     if (!nodes.has(id)) nodes.set(id, { value: '', textContent: '', innerHTML: '', style: { setProperty() {} }, dataset: {}, listeners: {},
@@ -26,7 +26,7 @@ function page({ search = '?pr=7', override = async () => undefined } = {}) {
     document: { getElementById: node, documentElement: node('root'), addEventListener() {} },
     localStorage: { get length() { return store.size; }, key: i => [...store.keys()][i], getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: k => store.delete(k) },
     sessionStorage: { length: 0 },
-    location: { protocol: 'https:', hostname: 'reader.example', href: `https://reader.example/reader/${search}`, search, hash: '' },
+    location: { protocol: 'https:', hostname: 'reader.example', href: `https://reader.example/reader/${search}${hash}`, search, hash },
     history: { replaceState() {} }, URL, URLSearchParams, Blob, crypto, console, addEventListener() {},
     fetch: async (url, options = {}) => {
       requests.push({ url, options });
@@ -138,4 +138,39 @@ test('a slower old source request cannot overwrite a later source choice', async
   finish(Response.json({ repo, pull, episodes: [row] })); await stale;
   assert.equal(p.run('review.pull'), null);
   assert.equal(p.run('cur?.pr'), undefined);
+});
+
+test('PR index hides unchanged episodes even when the old deep link points to one', async () => {
+  const p = page({ hash: '#99', override: async url => url === '../api/review?pr=7'
+    ? Response.json({ repo, pull, episodes: [{ ...row, number: 99, title: '変更なし', changed: false }, row] }) : undefined });
+  await p.ready;
+  assert.equal(p.run('episodes.length'), 1);
+  assert.equal(p.run('cur.n'), n);
+  assert.doesNotMatch(p.node('eplist').innerHTML, /変更なし/);
+});
+test('PR with no changed manuscript clears the body and explains the empty list', async () => {
+  const p = page({ override: async url => url === '../api/review?pr=7'
+    ? Response.json({ repo, pull, episodes: [{ ...row, changed: false }] }) : undefined });
+  await p.ready;
+  assert.equal(p.run('cur'), null);
+  assert.equal(p.node('eplist').innerHTML, '');
+  assert.equal(p.node('submit').disabled, true);
+  assert.match(p.node('status').textContent, /追加・変更された本文はありません/);
+});
+test('diff highlights coexist with annotations without changing quotes or leaking old HTML', async () => {
+  const diff = { paragraphs: [{ kind: 'changed', ranges: [[0, 2]] }, null], changes: [{ at: 0, count: 1, kind: 'changed', before: '<img onerror="alert(1)">', ranges: [[0, 22]] }], coarse: false };
+  const p = page({ override: async url => url.includes('path=') ? Response.json({ repo, text: 'PR本文。\n\n二段落目。', hash: 'c'.repeat(64), sha: 'blob', commit, diff }) : undefined });
+  await p.ready;
+  assert.match(p.node('text').innerHTML, /<ins class="pr-added">PR<\/ins>/);
+  assert.match(p.node('text').innerHTML, /data-pr-change="変更"/);
+  assert.doesNotMatch(p.node('review-changes').innerHTML, /<img/);
+  assert.match(p.node('review-changes').innerHTML, /&lt;img/);
+  p.run("draft.anns.push({type:'fix',pStart:0,pEnd:0,quote:'PR本文。',comment:'確認'}); renderText(); saveDraft()");
+  assert.match(p.node('text').innerHTML, /<mark class="c-fix"><ins class="pr-added">PR<\/ins><\/mark>/);
+  const markdown = p.run('toMarkdown()');
+  assert.match(markdown, /> PR本文。/);
+  assert.doesNotMatch(markdown, /<ins|<img|変更前/);
+  await p.choose('');
+  assert.equal(p.node('review-changes').hidden, true);
+  assert.doesNotMatch(p.node('text').innerHTML, /pr-added/);
 });

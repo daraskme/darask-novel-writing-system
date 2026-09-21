@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>darask 校閲リーダー</title>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="review-diff.css">
 </head>
 <body>
 <div id="app">
@@ -30,6 +31,7 @@
         <button class="btn" id="cfg">接続状況</button>
       </span>
     </header>
+    <div id="review-changes" hidden aria-label="PRの変更箇所"></div>
     <div id="empty">左の索引から話を選んでください。<br>文章を選択すると「修正・増やす・減らす・メモ」の指示を付けられます。<br>段落左の「＋」で段落全体にも付けられます。</div>
     <div id="text"></div>
   </section>

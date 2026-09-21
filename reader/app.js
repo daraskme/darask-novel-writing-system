@@ -84,11 +84,11 @@ async function openEpisode(n) {
   const serial = ++openSerial; const sourceRepo = cfg.repo; const sourceBranch = cfg.branch;
   try {
     const commit = review.pull?.commit || await headCommit();
-    const { text, sha, hash: prHash } = await getFile(e.manuscript);
+    const { text, sha, hash: prHash, diff } = await getFile(e.manuscript);
     if (serial !== openSerial || cfg.repo !== sourceRepo || cfg.branch !== sourceBranch) return;
     const hash = prHash || site?.hashes?.[e.manuscript] || '';
     const paras = text.replace(/\r\n/g, '\n').split(/\n\n+/).map((p) => p.replace(/^\n+|\n+$/g, ''));
-    cur = { n, title: e.title, kind: e.kind, path: e.manuscript, paras, sha, commit, hash, sourceRepo, sourceBranch, ...reviewSource() };
+    cur = { n, title: e.title, kind: e.kind, path: e.manuscript, paras, sha, commit, hash, diff, sourceRepo, sourceBranch, ...reviewSource() };
     draft = LS.get(draftKey(n), { overall: '', anns: [] });
     $('overall').disabled = false;
     $('overall').value = draft.overall;
@@ -97,6 +97,7 @@ async function openEpisode(n) {
     $('empty').style.display = 'none';
     location.hash = `#${n}`;
     renderText();
+    renderReviewChanges();
     renderSide();
     renderToc();
     status(draft.source && (draft.source.commit !== commit || draft.source.hash !== hash) ? '以前の本文への下書きです。保存時には元の版と引用を記録します。' : '');
@@ -128,7 +129,7 @@ function renderText() {
     const list = byPara.get(i) || [];
     const cls = list.length ? ` ann c-${list[0].a.type}` : '';
     const badge = list.length ? list.map((x) => `#${x.idx + 1}`).join(' ') : '+';
-    return `<p data-i="${i}" class="${cls.trim()}"><span class="gut" data-i="${i}" title="この段落に指示を付ける">${badge}</span>${markup(p, i, list)}</p>`;
+    return `<p data-i="${i}" class="${cls.trim()}" data-pr-change="${reviewParagraphLabel(i)}"><span class="gut" data-i="${i}" title="この段落に指示を付ける">${badge}</span>${markup(p, i, list)}</p>`;
   }).join('');
 }
 
@@ -143,13 +144,7 @@ function markup(text, i, list) {
     if (ranges.some((r) => s < r.e && e > r.s)) continue;
     ranges.push({ s, e, t: a.type });
   }
-  ranges.sort((x, y) => x.s - y.s);
-  let out = '', pos = 0;
-  for (const r of ranges) {
-    out += esc(text.slice(pos, r.s)) + `<mark class="c-${r.t}">${esc(text.slice(r.s, r.e))}</mark>`;
-    pos = r.e;
-  }
-  return out + esc(text.slice(pos));
+  return reviewMarkup(text, i, ranges);
 }
 
 // ---------- selection / popup ----------

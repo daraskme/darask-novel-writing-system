@@ -7,10 +7,11 @@
     "build:reader": "wrangler pages functions build --outdir .wrangler/reader-build"
   },
   "dependencies": {
+    "diff": "9.0.0",
     "jose": "^6.1.0"
   },
   "devDependencies": {
-    "wrangler": "^4.0.0",
-    "miniflare": "5.20260918.0-alpha"
+    "miniflare": "5.20260918.0-alpha",
+    "wrangler": "^4.0.0"
   }
 }

@@ -4,12 +4,13 @@ import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { createReviewHandler } from '../server/review.js';
 
 const repo = 'owner/novel', commit = 'a'.repeat(40), nextCommit = 'b'.repeat(40);
+const baseCommit = 'c'.repeat(40), mergeBase = 'd'.repeat(40);
 const { privateKey, publicKey } = await generateKeyPair('RS256');
 const jwk = { ...await exportJWK(publicKey), kid: 'test' };
 const keys = createLocalJWKSet({ keys: [jwk] });
 const env = { ACCESS_TEAM_DOMAIN: 'test.cloudflareaccess.com', ACCESS_AUD: 'test', FEEDBACK_GITHUB_TOKEN: 'server-token' };
 const jwt = await new SignJWT({ email: 'test@example.com' }).setProtectedHeader({ alg: 'RS256', kid: 'test' }).setSubject('reader').setIssuer('https://test.cloudflareaccess.com').setAudience('test').setExpirationTime('5m').sign(privateKey);
-const pull = { number: 7, title: '改稿 <script>', state: 'open', draft: true, head: { repo: { full_name: repo }, ref: 'novel/revision', sha: commit } };
+const pull = { number: 7, title: '改稿 <script>', state: 'open', draft: true, base: { sha: baseCommit }, head: { repo: { full_name: repo }, ref: 'novel/revision', sha: commit } };
 const rows = [
   { number: 1, title: '第一話', manuscript: 'main/001.txt' },
   { number: 2, title: '前後の話', manuscript: 'main/002.txt' },
@@ -32,6 +33,9 @@ function setup({ pr = pull, index = rows, format = 'standard', indexPath = 'plot
     if (p.startsWith('pulls?')) return Response.json([pr, { ...pr, number: 8, head: { ...pr.head, repo: { full_name: 'other/fork' } } }]);
     if (p === 'pulls/7') return Response.json(pr);
     if (p === `git/trees/${commit}?recursive=1`) return Response.json({ tree, truncated: false });
+    if (p === `compare/${baseCommit}...${commit}?per_page=1`) return Response.json({ merge_base_commit: { sha: mergeBase } });
+    if (p === `git/trees/${mergeBase}?recursive=1`) return Response.json({ tree: [{ path: 'main/001.txt', sha: 'old-body', type: 'blob', mode: '100644' }], truncated: false });
+    if (p === 'git/blobs/old-body') return Response.json({ encoding: 'base64', content: Buffer.from('変更前の本文。\n\n日本語と🐈').toString('base64') });
     if (p === 'git/blobs/index') return Response.json({ encoding: 'base64', content: Buffer.from(JSON.stringify(index)).toString('base64') });
     if (p.startsWith('git/blobs/main/')) return Response.json({ encoding: 'base64', content: Buffer.from('PRの本文。\n\n日本語と🐈').toString('base64') });
     if (p.startsWith('pulls/7/files?')) return Response.json([{ filename: 'main/001.txt', status: 'modified' }, { filename: 'main/第15.5話.md', status: 'added' }, { filename: 'main/003.txt', status: 'removed' }]);
@@ -50,7 +54,7 @@ test('PR list includes same-repository drafts, no forks or secrets, and never ca
 });
 test('index returns only indexed regular manuscripts and marks modified/added files', async () => {
   const s = setup(), data = await (await s.run('?pr=7')).json();
-  assert.deepEqual(data.episodes.map(e => [e.number, e.changed]), [[1, true], [2, false]]);
+  assert.deepEqual(data.episodes.map(e => [e.number, e.changed]), [[1, true]]);
   assert.equal(data.pull.commit, commit);
   assert.equal(data.pull.branch, 'novel/revision');
   assert.equal(s.calls.filter(p => p === 'pulls/7').length, 2);
@@ -62,6 +66,10 @@ test('pinned body returns UTF-8, blob SHA and SHA-256', async () => {
   assert.equal(body.commit, commit);
   assert.match(body.hash, /^[a-f0-9]{64}$/);
   assert.equal(body.sha, 'main/001.txt');
+  assert.equal(body.diff.baseCommit, mergeBase);
+  assert.equal(body.diff.paragraphs[0].kind, 'changed');
+  assert.equal(body.diff.paragraphs[1], null);
+  assert.equal(body.diff.changes[0].before, '変更前の本文。');
 });
 test('supports Kiriya fractional episode numbers and Japanese manuscript paths', async () => {
   const s = setup({ format: 'kiriya', indexPath: 'kakuyomu/episodes.json', index: { episodes: [{ label: '第15.5話', title: '第15.5話　追加の話', file: 'main/第15.5話.md', kakuyomuSlot: 16 }] } });
@@ -114,5 +122,34 @@ test('upstream failures do not expose tokens and explain the required PR permiss
 test('rejects truncated trees and invalid JSON without serving a partial index', async () => {
   const s = setup({ override: p => p.startsWith('git/trees/') ? Response.json({ truncated: true, tree: [] }) : undefined });
   assert.equal((await s.run('?pr=7')).status, 422);
+});
+
+test('unchanged episodes cannot be opened through a PR body deep link', async () => {
+  const s = setup();
+  assert.equal((await s.run(`?pr=7&commit=${commit}&path=main/002.txt`)).status, 404);
+  assert.equal(s.calls.includes('git/blobs/main/002.txt'), false);
+});
+
+test('renamed manuscript compares with its original path at the merge base', async () => {
+  const s = setup({ override: p => {
+    if (p.startsWith('pulls/7/files?')) return Response.json([{ filename: 'main/001.txt', previous_filename: 'main/旧題.txt', status: 'renamed' }]);
+    if (p === `git/trees/${mergeBase}?recursive=1`) return Response.json({ tree: [{ path: 'main/旧題.txt', sha: 'old-body', type: 'blob', mode: '100644' }] });
+  } });
+  const response = await s.run(`?pr=7&commit=${commit}&path=main/001.txt`);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).diff.basePath, 'main/旧題.txt');
+});
+
+test('comparison rejects symlinks, non-manuscript rename sources and base changes during loading', async () => {
+  for (const override of [
+    p => p === `git/trees/${mergeBase}?recursive=1` ? Response.json({ tree: [{ path: 'main/001.txt', sha: 'private', type: 'blob', mode: '120000' }] }) : undefined,
+    p => p.startsWith('pulls/7/files?') ? Response.json([{ filename: 'main/001.txt', previous_filename: 'wiki/private.md', status: 'renamed' }]) : undefined,
+  ]) {
+    const s = setup({ override });
+    assert.equal((await s.run(`?pr=7&commit=${commit}&path=main/001.txt`)).status, 422);
+    assert.equal(s.calls.includes('git/blobs/private'), false);
+  }
+  const s = setup({ override: (p, calls) => p === 'pulls/7' && calls.filter(x => x === p).length > 1 ? Response.json({ ...pull, base: { sha: nextCommit } }) : undefined });
+  assert.equal((await s.run(`?pr=7&commit=${commit}&path=main/001.txt`)).status, 409);
 });
 

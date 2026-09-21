@@ -26,6 +26,7 @@ test('compiled Pages API reads PRs in workerd and never follows GitHub redirects
       .setIssuer('https://test.cloudflareaccess.com').setAudience('runtime-test')
       .setExpirationTime('5m').sign(privateKey);
     const calls = [];
+    const commit = 'a'.repeat(40), base = 'b'.repeat(40);
     let redirect = false;
     mf = new Miniflare(convertV4MiniflareOptions({
       modules: true,
@@ -42,12 +43,26 @@ test('compiled Pages API reads PRs in workerd and never follows GitHub redirects
           return Response.json({ keys: [jwk] });
         }
         assert.equal(url.origin, 'https://api.github.com', 'credentials must never reach a redirect destination');
-        assert.match(url.pathname, /^\/repos\/[^/]+\/[^/]+\/pulls$/);
+        assert.match(url.pathname, /^\/repos\/[^/]+\/[^/]+\//);
         assert.equal(request.headers.get('Authorization'), 'Bearer runtime-test-token');
         if (redirect) return Response.redirect('https://unexpected.invalid/credentials', 302);
         const repo = url.pathname.split('/').slice(2, 4).join('/');
-        return Response.json([{ number: 7, title: 'Runtime fixture', draft: true,
-          head: { repo: { full_name: repo }, ref: 'revision', sha: 'a'.repeat(40) } }]);
+        const route = url.pathname.split('/').slice(4).join('/');
+        const pull = { number: 7, title: 'Runtime fixture', state: 'open', draft: true, base: { sha: base },
+          head: { repo: { full_name: repo }, ref: 'revision', sha: commit } };
+        const blob = text => Response.json({ encoding: 'base64', content: Buffer.from(text).toString('base64') });
+        if (route === 'pulls') return Response.json([pull]);
+        if (route === 'pulls/7') return Response.json(pull);
+        if (route === 'pulls/7/files') return Response.json([{ filename: 'main/001.txt', status: 'modified' }]);
+        if (route.startsWith('compare/')) return Response.json({ merge_base_commit: { sha: base } });
+        if (route.startsWith('git/trees/')) return Response.json({ tree: [
+          { path: repo.endsWith('novel-kiriya') ? 'kakuyomu/episodes.json' : 'plot/episodes.json', type: 'blob', mode: '100644', sha: 'index' },
+          { path: 'main/001.txt', type: 'blob', mode: '100644', sha: route.endsWith(base) ? 'old-body' : 'body' },
+        ] });
+        if (route === 'git/blobs/index') return blob(JSON.stringify(repo.endsWith('novel-kiriya') ? { episodes: [{ label: '第1話', title: 'Runtime fixture', file: 'main/001.txt' }] } : [{ number: 1, title: 'Runtime fixture', manuscript: 'main/001.txt' }]));
+        if (route === 'git/blobs/old-body') return blob('赤い傘。');
+        if (route === 'git/blobs/body') return blob('青い傘。');
+        throw new Error('Unexpected fixture request');
       },
     }));
     const url = 'https://reader.example/api/review';
@@ -59,11 +74,18 @@ test('compiled Pages API reads PRs in workerd and never follows GitHub redirects
     assert.equal(response.status, 200, JSON.stringify(data));
     assert.deepEqual(data.pulls.map(p => [p.number, p.draft, p.branch]), [[7, true, 'revision']]);
     assert.equal(JSON.stringify(data).includes('runtime-test-token'), false);
+    const bodyResponse = await mf.dispatchFetch(`${url}?pr=7&commit=${commit}&path=main/001.txt`, init);
+    const body = await bodyResponse.json();
+    assert.equal(bodyResponse.status, 200, JSON.stringify(body));
+    assert.equal(body.text, '青い傘。');
+    assert.deepEqual(body.diff.paragraphs[0].ranges, [[0, 1]]);
+    assert.equal(body.diff.changes[0].before, '赤い傘。');
+    const githubCalls = calls.filter(u => u.origin === 'https://api.github.com').length;
     redirect = true;
     const denied = await mf.dispatchFetch(url, init);
     assert.equal(denied.status, 502);
     assert.match((await denied.json()).error, /PRを取得できません/);
-    assert.equal(calls.filter(u => u.origin === 'https://api.github.com').length, 2);
+    assert.equal(calls.filter(u => u.origin === 'https://api.github.com').length, githubCalls + 1);
   } finally {
     await mf?.dispose();
     await rm(dir, { recursive: true, force: true });
